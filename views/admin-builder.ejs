@@ -452,8 +452,56 @@ if (type === "historychat") {
     }
 
     if (type === "question") {
-      pDyn.innerHTML = `<div style="background:#fef3c7; padding:12px; border-radius:8px; border:1px solid #fde68a;"><label>Max Punten</label><input type="number" id="p-pts" value="${qs('[data-field="pts"]', block).value}"></div>`;
+      pDyn.innerHTML = `
+        <div style="background:#fef3c7; padding:12px; border-radius:8px; border:1px solid #fde68a;">
+          <label>Max Punten</label><input type="number" id="p-pts" value="${qs('[data-field="pts"]', block).value}">
+          <label>Verwijs bij JUIST (optioneel, pagina index)</label><input type="text" id="p-goodPage" value="${qs('[data-field="goodPage"]', block).value}">
+          <label>Verwijs bij FOUT (optioneel, pagina index)</label><input type="text" id="p-badPage" value="${qs('[data-field="badPage"]', block).value}">
+          <hr class="sep">
+          <label><input type="checkbox" id="p-istimed" ${qs('[data-field="istimed"]', block).value === 'true' ? 'checked' : ''}> Tijdslimiet activeren?</label>
+          <div id="p-timeopts" style="display:${qs('[data-field="istimed"]', block).value === 'true' ? 'block' : 'none'};">
+            <label>Tijdslimiet (seconden)</label><input type="number" id="p-tlimit" value="${qs('[data-field="tlimit"]', block).value}">
+            <label>Strafpunten (hoeveel)</label><input type="number" id="p-ppen" value="${qs('[data-field="ppen"]', block).value}">
+            <label>Straf interval (per X sec)</label><input type="number" id="p-psec" value="${qs('[data-field="psec"]', block).value}">
+          </div>
+        </div>
+      `;
       qs("#p-pts").oninput = () => qs('[data-field="pts"]', block).value = qs("#p-pts").value;
+      qs("#p-goodPage").oninput = () => qs('[data-field="goodPage"]', block).value = qs("#p-goodPage").value;
+      qs("#p-badPage").oninput = () => qs('[data-field="badPage"]', block).value = qs("#p-badPage").value;
+      qs("#p-istimed").onchange = (e) => {
+        qs('[data-field="istimed"]', block).value = e.target.checked ? "true" : "false";
+        qs("#p-timeopts").style.display = e.target.checked ? "block" : "none";
+      };
+      qs("#p-tlimit").oninput = () => qs('[data-field="tlimit"]', block).value = qs("#p-tlimit").value;
+      qs("#p-ppen").oninput = () => qs('[data-field="ppen"]', block).value = qs("#p-ppen").value;
+      qs("#p-psec").oninput = () => qs('[data-field="psec"]', block).value = qs("#p-psec").value;
+    }
+
+    if (type === "historychat") {
+      pDyn.innerHTML = `
+        <div style="background:#fef2f2; padding:12px; border-radius:8px; border:1px solid #fecaca;">
+          <label>Personage Naam</label><input type="text" id="p-chatname" value="${qs('[data-field="chat-name"]', block).value}">
+          <label>Systeem Prompt / Karakter Omschrijving</label><textarea id="p-chatprompt" rows="3">${qs('[data-field="chat-prompt"]', block).value}</textarea>
+          <label>Max turns</label><input type="number" id="p-chatturns" value="${qs('[data-field="chat-max-turns"]', block).value}">
+        </div>
+      `;
+      qs("#p-chatname").oninput = () => qs('[data-field="chat-name"]', block).value = qs("#p-chatname").value;
+      qs("#p-chatprompt").oninput = () => qs('[data-field="chat-prompt"]', block).value = qs("#p-chatprompt").value;
+      qs("#p-chatturns").oninput = () => qs('[data-field="chat-max-turns"]', block).value = qs("#p-chatturns").value;
+    }
+
+    if (type === "aiphoto") {
+      pDyn.innerHTML = `
+        <div style="background:#eef2ff; padding:12px; border-radius:8px; border:1px solid #c7d2fe;">
+          <label>Instructie Speler</label><input type="text" id="p-aiinst" value="${qs('[data-field="ai-instruction"]', block).value}">
+          <label>Geheime AI-Prompt</label><input type="text" id="p-aiprompt" value="${qs('[data-field="ai-prompt"]', block).value}">
+          <label>Punten</label><input type="number" id="p-aipts" value="${qs('[data-field="ai-points"]', block).value}">
+        </div>
+      `;
+      qs("#p-aiinst").oninput = () => qs('[data-field="ai-instruction"]', block).value = qs("#p-aiinst").value;
+      qs("#p-aiprompt").oninput = () => qs('[data-field="ai-prompt"]', block).value = qs("#p-aiprompt").value;
+      qs("#p-aipts").oninput = () => qs('[data-field="ai-points"]', block).value = qs("#p-aipts").value;
     }
 
     // Universele hints
@@ -496,6 +544,13 @@ if (type === "historychat") {
          qs('[data-field="questionType"]',b).dispatchEvent(new Event('change'));
          if(m.data.questionType==="open") qs('[data-field="answer"]',b).value = typeof m.data.answer==="string"?m.data.answer:m.data.answer?.[activeLanguage]||"";
          else { qs('[data-options]',b).innerHTML=""; (m.data.options||[]).forEach(o=> b.createOption(typeof o.text==="string"?o.text:o.text?.[activeLanguage]||"", o.correct)); }
+         qs('[data-field="pts"]',b).value = m.data.maxPoints||10;
+         qs('[data-field="goodPage"]',b).value = m.data.goodPage||"";
+         qs('[data-field="badPage"]',b).value = m.data.badPage||"";
+         qs('[data-field="istimed"]',b).value = m.data.isTimed||"false";
+         qs('[data-field="tlimit"]',b).value = m.data.timeLimit||60;
+         qs('[data-field="psec"]',b).value = m.data.penaltySec||10;
+         qs('[data-field="ppen"]',b).value = m.data.penaltyPoints||1;
       }
     if(m.type==="historychat"){
          qs('[data-field="chat-name"]',b).value = typeof m.data.characterName==="string"?m.data.characterName:m.data.characterName?.[activeLanguage]||"";
@@ -533,6 +588,12 @@ if (type === "historychat") {
         if(data.questionType==="open") data.answer = {[activeLanguage]: qs('[data-field="answer"]',b).value};
         else data.options = qsa('.mc-option',b).map(o=>({ text: {[activeLanguage]: o.querySelector('[data-text]').value}, correct: !!o.querySelector('[data-correct]').checked }));
         data.maxPoints = Number(qs('[data-field="pts"]',b).value)||10;
+        data.goodPage = qs('[data-field="goodPage"]',b).value||"";
+        data.badPage = qs('[data-field="badPage"]',b).value||"";
+        data.isTimed = qs('[data-field="istimed"]',b).value;
+        data.timeLimit = Number(qs('[data-field="tlimit"]',b).value)||60;
+        data.penaltySec = Number(qs('[data-field="psec"]',b).value)||10;
+        data.penaltyPoints = Number(qs('[data-field="ppen"]',b).value)||1;
       }
 
       if(type==="historychat"){

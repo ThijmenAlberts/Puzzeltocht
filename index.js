@@ -394,7 +394,7 @@ app.post("/check-code", checkCodeLimiter, async (req, res) => {
 });
 
 app.get("/next", async (req, res) => {
-  const puzzles = await Puzzle.find().sort({ createdAt: -1 });
+  const puzzles = await Puzzle.find().sort({ createdAt: -1 }).lean();
   res.render("next", { puzzles });
 });
 
@@ -462,7 +462,7 @@ app.post("/admin-theme", requireAdmin, async (req, res) => {
 });
 
 app.get("/admin-puzzles", requireAdmin, async (req, res) => {
-  const puzzles = await Puzzle.find().sort({ createdAt: -1 });
+  const puzzles = await Puzzle.find().sort({ createdAt: -1 }).lean();
   res.render("admin-puzzles", { puzzles });
 });
 // --- JSON EXPORT ROUTE ---
@@ -1055,7 +1055,7 @@ app.post("/puzzle/set-language", express.urlencoded({ extended: false }), (req, 
 });
 
 app.get("/puzzle/:id", async (req, res) => {
-  const puzzle = await Puzzle.findById(req.params.id);
+  const puzzle = await Puzzle.findById(req.params.id).lean();
   if (!puzzle) return res.status(404).send("Puzzel niet gevonden");
   res.redirect(`/puzzle/${puzzle._id}/0`);
 });

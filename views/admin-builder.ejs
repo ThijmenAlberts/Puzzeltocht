@@ -478,6 +478,32 @@ if (type === "historychat") {
       qs("#p-psec").oninput = () => qs('[data-field="psec"]', block).value = qs("#p-psec").value;
     }
 
+    if (type === "historychat") {
+      pDyn.innerHTML = `
+        <div style="background:#fef2f2; padding:12px; border-radius:8px; border:1px solid #fecaca;">
+          <label>Personage Naam</label><input type="text" id="p-chatname" value="${qs('[data-field="chat-name"]', block).value}">
+          <label>Systeem Prompt / Karakter Omschrijving</label><textarea id="p-chatprompt" rows="3">${qs('[data-field="chat-prompt"]', block).value}</textarea>
+          <label>Max turns</label><input type="number" id="p-chatturns" value="${qs('[data-field="chat-max-turns"]', block).value}">
+        </div>
+      `;
+      qs("#p-chatname").oninput = () => qs('[data-field="chat-name"]', block).value = qs("#p-chatname").value;
+      qs("#p-chatprompt").oninput = () => qs('[data-field="chat-prompt"]', block).value = qs("#p-chatprompt").value;
+      qs("#p-chatturns").oninput = () => qs('[data-field="chat-max-turns"]', block).value = qs("#p-chatturns").value;
+    }
+
+    if (type === "aiphoto") {
+      pDyn.innerHTML = `
+        <div style="background:#eef2ff; padding:12px; border-radius:8px; border:1px solid #c7d2fe;">
+          <label>Instructie Speler</label><input type="text" id="p-aiinst" value="${qs('[data-field="ai-instruction"]', block).value}">
+          <label>Geheime AI-Prompt</label><input type="text" id="p-aiprompt" value="${qs('[data-field="ai-prompt"]', block).value}">
+          <label>Punten</label><input type="number" id="p-aipts" value="${qs('[data-field="ai-points"]', block).value}">
+        </div>
+      `;
+      qs("#p-aiinst").oninput = () => qs('[data-field="ai-instruction"]', block).value = qs("#p-aiinst").value;
+      qs("#p-aiprompt").oninput = () => qs('[data-field="ai-prompt"]', block).value = qs("#p-aiprompt").value;
+      qs("#p-aipts").oninput = () => qs('[data-field="ai-points"]', block).value = qs("#p-aipts").value;
+    }
+
     // Universele hints
     const sAiK = qs('[data-field="aiknowledge"]', block);
     if(sAiK){

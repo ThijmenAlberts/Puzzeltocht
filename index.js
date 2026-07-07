@@ -15,16 +15,20 @@ import fs from "fs";
 import crypto from "crypto";
 import rateLimit from "express-rate-limit";
 
+
+//
 import Puzzle from "./models/Puzzle.js";
 import Admin from "./models/Admin.js";
 import { checkCode } from "./models/Code.js";
 import Theme from "./models/Theme.js";
 import GlobalTeam from "./models/GlobalTeam.js";
 import GameSession from "./models/GameSession.js";
+import UsedCode from "./models/UsedCode.js";
 
 import base from "./models/airtable.js";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import cookieParser from "cookie-parser";
 
 dotenv.config();
 
@@ -83,8 +87,15 @@ const storage = multer.diskStorage({
 const uploadMedia = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/") || file.mimetype.startsWith("audio/")) cb(null, true);
-    else cb(new Error("Alleen afbeeldingen of audio toegestaan"), false);
+    const allowedExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp3", ".wav", ".ogg", ".m4a"];
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const isAllowedExt = allowedExts.includes(ext);
+
+    if ((file.mimetype.startsWith("image/") || file.mimetype.startsWith("audio/")) && isAllowedExt) {
+      cb(null, true);
+    } else {
+      cb(new Error("Alleen veilige afbeeldingen of audio toegestaan"), false);
+    }
   },
   limits: { fileSize: 25 * 1024 * 1024 }
 });
@@ -100,8 +111,15 @@ const uploadTeamPhoto = multer({
   }),
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) cb(null, true);
-    else cb(new Error("Alleen afbeeldingen toegestaan"));
+    const allowedExts = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const isAllowedExt = allowedExts.includes(ext);
+
+    if (file.mimetype.startsWith("image/") && isAllowedExt) {
+      cb(null, true);
+    } else {
+      cb(new Error("Alleen veilige afbeeldingen toegestaan"));
+    }
   }
 });
 
@@ -152,8 +170,10 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use(expressLayouts);
 app.set("layout", "layout");
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use(cookieParser());
 
 // ------------------------------------------
 // 5. SESSIE (RAILWAY FIX: Timeout limit)
@@ -178,14 +198,23 @@ app.use((req, res, next) => {
 // ------------------------------------------
 // 6. THEMA INLADEN
 // ------------------------------------------
+let cachedTheme = null;
+let themeCacheTime = 0;
+const THEME_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 app.use(async (req, res, next) => {
   try {
-    const theme = await Theme.findOne();
-    res.locals.theme = theme || {
-      primaryColor: "#2563eb", backgroundColor: "#ffffff", textColor: "#111827", borderRadius: "0.75rem", fontFamily: "Inter, sans-serif"
-    };
+    const now = Date.now();
+    if (!cachedTheme || (now - themeCacheTime) > THEME_CACHE_TTL) {
+      const theme = await Theme.findOne();
+      cachedTheme = theme || {
+        primaryColor: "#2563eb", backgroundColor: "#ffffff", textColor: "#111827", borderRadius: "0.75rem", fontFamily: "Inter, sans-serif"
+      };
+      themeCacheTime = now;
+    }
+    res.locals.theme = cachedTheme;
   } catch {
-    res.locals.theme = { primaryColor: "#2563eb", backgroundColor: "#ffffff", textColor: "#111827", borderRadius: "0.75rem", fontFamily: "Inter, sans-serif" };
+    res.locals.theme = cachedTheme || { primaryColor: "#2563eb", backgroundColor: "#ffffff", textColor: "#111827", borderRadius: "0.75rem", fontFamily: "Inter, sans-serif" };
   }
   next();
 });
@@ -273,7 +302,7 @@ app.get("/admin-files/:folder", requireAdmin, (req, res) => {
   });
 });
 
-app.post("/admin-files/delete", requireAdmin, express.json(), (req, res) => {
+app.post("/admin-files/delete", requireAdmin, express.json({ limit: "50mb" }), (req, res) => {
   const { folder, file } = req.body;
 
   const folderPath = folder ? path.join(uploadDir, folder) : uploadDir;
@@ -287,7 +316,7 @@ app.post("/admin-files/delete", requireAdmin, express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/admin-files/rename", requireAdmin, express.json(), (req, res) => {
+app.post("/admin-files/rename", requireAdmin, express.json({ limit: "50mb" }), (req, res) => {
   const { folder, oldName, newName } = req.body;
 
   if (!oldName || !newName) {
@@ -323,10 +352,26 @@ app.post("/admin-files/rename", requireAdmin, express.json(), (req, res) => {
 app.get("/", (req, res) => res.render("index", { error: null }));
 app.post("/check-code", checkCodeLimiter, async (req, res) => {
   try {
-    const result = await checkCode(req.body.code);
+    const rawCode = req.body.code.trim().toUpperCase();
+    const result = await checkCode(rawCode);
 
     if (!result.valid) return res.render("index", { error: result.error });
     if (result.admin) return res.redirect("/admin-login");
+
+    let deviceId = req.cookies.deviceId;
+    if (!deviceId) {
+      deviceId = crypto.randomBytes(16).toString("hex");
+      res.cookie("deviceId", deviceId, { maxAge: 365 * 24 * 60 * 60 * 1000, httpOnly: true });
+    }
+
+    const usedCodeRecord = await UsedCode.findOne({ code: rawCode });
+    if (usedCodeRecord) {
+      if (usedCodeRecord.deviceId !== deviceId) {
+        return res.render("index", { error: "Deze code is al in gebruik op een ander apparaat." });
+      }
+    } else {
+      await UsedCode.create({ code: rawCode, deviceId });
+    }
 
     // AIRTABLE MAPPING LOGICA
     if (result.airtablePuzzleName) {
@@ -411,6 +456,7 @@ app.get("/admin/feedback", requireAdmin, async (req, res) => {
 app.post("/admin-theme", requireAdmin, async (req, res) => {
   const { primaryColor, backgroundColor, textColor, borderRadius, fontFamily } = req.body;
   await Theme.findOneAndUpdate({}, { primaryColor, backgroundColor, textColor, borderRadius, fontFamily }, { upsert: true });
+  cachedTheme = null; // Invalidate cache
   res.render("admin-theme", { theme: req.body, saved: true });
 });
 
@@ -507,7 +553,7 @@ app.get("/admin-builder/:id", requireAdmin, async (req, res) => {
   res.render("admin-builder", { puzzle, builderPage: true });
 });
   
-app.post("/admin-builder/:id/save-all", requireAdmin, express.json(), async (req, res) => {
+app.post("/admin-builder/:id/save-all", requireAdmin, express.json({ limit: '50mb' }), async (req, res) => {
   try {
     const puzzle = await Puzzle.findById(req.params.id);
     if (!puzzle) return res.status(404).json({ error: "Niet gevonden" });
@@ -543,7 +589,7 @@ app.post("/admin-builder/:id/save-all", requireAdmin, express.json(), async (req
 // ==========================================
 
 // 1. Teamnaam & Email Kiezen -> Start Geïsoleerde Sessie
-app.post("/team/name", express.json(), async (req, res) => {
+app.post("/team/name", express.json({ limit: "50mb" }), async (req, res) => {
   const { name, email, puzzleId } = req.body;
   if (!name || !email) return res.status(400).json({ error: "Naam en E-mail zijn verplicht" });
 
@@ -568,6 +614,7 @@ app.post("/team/name", express.json(), async (req, res) => {
 
     // Koppel aan Express sessie
     req.session.teamName = name.trim();
+    req.session.teamEmail = cleanEmail;
     req.session.currentSessionId = sessionId;
     req.session.totalScore = 0;
     req.session.logbook = [];
@@ -584,7 +631,7 @@ app.post("/team/name", express.json(), async (req, res) => {
 });
 
 // 2. Server-Side Timers (Beveiligd tegen pagina-verversen)
-app.post("/api/timer/start", express.json(), (req, res) => {
+app.post("/api/timer/start", express.json({ limit: "50mb" }), (req, res) => {
   const { questionId } = req.body;
   if (!req.session.timers) req.session.timers = {};
   
@@ -596,7 +643,7 @@ app.post("/api/timer/start", express.json(), (req, res) => {
 });
 
 // 3. Standaard Puntentelling (Voor NIET-tijdsgebonden en Algemene acties)
-app.post("/api/log-action", express.json(), (req, res) => {
+app.post("/api/log-action", express.json({ limit: "50mb" }), (req, res) => {
   const { points, logMessage } = req.body;
   if (req.session.totalScore === undefined) req.session.totalScore = 0;
   if (!req.session.logbook) req.session.logbook = [];
@@ -612,7 +659,7 @@ app.post("/api/log-action", express.json(), (req, res) => {
 });
 
 // 4. Server-Side Timer Submit (100% Waterdicht)
-app.post("/api/timer/stop", express.json(), (req, res) => {
+app.post("/api/timer/stop", express.json({ limit: "50mb" }), (req, res) => {
   const { questionId, maxPts, limit, pSec, pPts, logMessage } = req.body;
   
   if (req.session.totalScore === undefined) req.session.totalScore = 0;
@@ -650,7 +697,7 @@ app.post("/api/timer/stop", express.json(), (req, res) => {
 // ==========================================
 // GAME ENGINE: DE AI DUNGEON MASTER (PROACTIEF)
 // ==========================================
-app.post("/api/director/pulse", express.json(), async (req, res) => {
+app.post("/api/director/pulse", express.json({ limit: "50mb" }), async (req, res) => {
   const { lat, lng, currentSceneId, timeInSceneMs } = req.body;
   
   if (!req.session.teamName) return res.status(401).json({ error: "Unauthorized" });
@@ -669,7 +716,7 @@ app.post("/api/director/pulse", express.json(), async (req, res) => {
     try {
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.5-flash-lite",
+        model: "gemini-2.5-flash",
         systemInstruction: "Je bent The Director, een mysterieuze gids. Het team zit vast in het huidige level. Geef een zeer korte, cryptische maar nuttige hint in 1 zin. Niet groeten. Spreek ze direct aan."
       });
       
@@ -696,7 +743,7 @@ app.post("/api/director/pulse", express.json(), async (req, res) => {
 // ==========================================
 // GAME ENGINE: ZERO-UI SENSOR TRIGGERS
 // ==========================================
-app.post("/api/scene/trigger", express.json(), async (req, res) => {
+app.post("/api/scene/trigger", express.json({ limit: "50mb" }), async (req, res) => {
   const { puzzleId, sceneIndex, triggerType, targetValue } = req.body;
   
   if (!req.session.teamName) return res.status(401).json({ error: "Unauthorized" });
@@ -728,7 +775,7 @@ app.post("/api/scene/trigger", express.json(), async (req, res) => {
 // ==========================================
 // GAME ENGINE: FASE 3 (HYBRIDE HINT ENGINE)
 // ==========================================
-app.post("/api/get-hint", express.json(), async (req, res) => {
+app.post("/api/get-hint", express.json({ limit: "50mb" }), async (req, res) => {
   if (!req.session.teamName) return res.status(401).json({ error: "Start eerst je team voordat je een hint vraagt." });
   const { questionText, hintType, staticHintText, secretKnowledge, userMessage, hintCost, questionId } = req.body;
   
@@ -826,7 +873,7 @@ app.post("/api/verify-aiphoto", uploadTeamPhoto.single("file"), async (req, res)
   }
 });
 
-app.post("/api/chat-persona", express.json(), async (req, res) => {
+app.post("/api/chat-persona", express.json({ limit: "50mb" }), async (req, res) => {
   if (!req.session.teamName) return res.status(401).json({ reply: "Start eerst je team om het gesprek te beginnen." });
   let characterNameStr = req.body.characterName || "Historisch Figuur";
   const maxTurnsAllowed = Number(req.body.maxTurns) || 3; // Dynamisch uit de builder!
@@ -861,8 +908,9 @@ app.post("/api/chat-persona", express.json(), async (req, res) => {
 // FASE 4 & 5: FINALE & LEADERBOARD
 // ==========================================
 
-app.post("/api/generate-finale-report", express.json(), async (req, res) => {
+app.post("/api/generate-finale-report", express.json({ limit: "50mb" }), async (req, res) => {
   const teamNameStr = req.session.teamName || "Het Spookteam";
+  const teamEmailStr = req.session.teamEmail;
   const { userFeedback, puzzleId } = req.body;
 
   try {
@@ -874,7 +922,9 @@ app.post("/api/generate-finale-report", express.json(), async (req, res) => {
     const totalTimeSec = Math.floor((Date.now() - startTime) / 1000);
     const timeMin = Math.floor(totalTimeSec / 60);
 
-    // 1. FASE 4: SAVE NAAR LEADERBOARD
+    let pastFeedbackHistory = "";
+
+    // 1. FASE 4: SAVE NAAR LEADERBOARD & GLOBAL TEAM (FEEDBACK)
     if (puzzleId && !req.session.hasFinished) {
       await Leaderboard.create({
         teamName: teamNameStr,
@@ -882,6 +932,24 @@ app.post("/api/generate-finale-report", express.json(), async (req, res) => {
         totalScore: score,
         totalTimeSec: totalTimeSec
       });
+
+      if (teamEmailStr) {
+        const team = await GlobalTeam.findOne({ email: teamEmailStr });
+        if (team) {
+          if (team.feedbackHistory && team.feedbackHistory.length > 0) {
+            pastFeedbackHistory = team.feedbackHistory.map((f, i) => `Tocht ${i + 1}: ${f.feedback} (${f.score} pt)`).join("\n");
+          }
+          if (userFeedback) {
+             team.feedbackHistory.push({
+               puzzleId: puzzleId,
+               feedback: userFeedback,
+               score: score
+             });
+             await team.save();
+          }
+        }
+      }
+
       req.session.hasFinished = true; 
     }
 
@@ -907,10 +975,13 @@ app.post("/api/generate-finale-report", express.json(), async (req, res) => {
       Gespeelde tijd: ${timeMin} minuten.
       Feedback van speler aan het eind: "${userFeedback || 'Geen mening'}".
       
-      Logboek van hun acties:
+      Eerdere avonturen en feedback van dit team (gebruik dit als context als het relevant is):
+      ${pastFeedbackHistory || "Geen eerdere avonturen."}
+
+      Logboek van hun acties vandaag:
       ${logbook.join("\n")}
       
-      Schrijf een leuk verhaal (max 3 alinea's) dat hun slimme acties prijst, maar ze ook liefdevol plaagt over gekochte hints of foute antwoorden.
+      Schrijf een leuk verhaal (max 3 alinea's) dat hun slimme acties prijst, maar ze ook liefdevol plaagt over gekochte hints of foute antwoorden, betrek eventueel hun eerdere avonturen in het praatje.
     `;
 
     const result = await model.generateContent(aiPrompt);
@@ -969,7 +1040,7 @@ app.post("/upload-photo", uploadTeamPhoto.single("file"), (req, res) => {
   res.json({ url: `/uploads/team-photos/${req.file.filename}` });
 });
 
-app.post("/team/profile-photo", express.json(), (req, res) => {
+app.post("/team/profile-photo", express.json({ limit: "50mb" }), (req, res) => {
   const { photoUrl } = req.body;
   if (!photoUrl || !photoUrl.startsWith("/uploads/team-photos/")) return res.status(400).json({ error: "Ongeldig" });
   const oldPhotoUrl = req.session.teamProfilePhoto;

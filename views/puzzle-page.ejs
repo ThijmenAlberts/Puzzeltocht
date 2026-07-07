@@ -156,20 +156,38 @@
 
   /* Status / Score Tag bovenaan */
   .stone-tag {
-    display: inline-block; padding: 10px 24px; 
+    display: inline-block; padding: 10px 24px;
     background: var(--glass-bg);
     backdrop-filter: blur(12px);
-    border-radius: 0 0 20px 20px; 
-    border: 1px solid var(--glass-border); 
-    border-top: none; font-weight: 600; 
+    border-radius: 0 0 20px 20px;
+    border: 1px solid var(--glass-border);
+    border-top: none; font-weight: 600;
     box-shadow: var(--glass-shadow);
     animation: floatPulse 4s ease-in-out infinite;
+  }
+
+  /* Floating Score Animatie (voorheen in layout.ejs) */
+  .score-float {
+    position: fixed;
+    top: 40%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 4rem; font-weight: 900;
+    color: #10b981;
+    pointer-events: none;
+    z-index: 10000;
+    text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+    animation: floatAndFade 1.8s ease-out forwards;
+  }
+  @keyframes floatAndFade {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+    100% { opacity: 0; transform: translate(-50%, -150%) scale(1.5); }
   }
 
   </style>
 </head>
 
-<body>
+<body data-scene-id="<%= pageIndex %>" data-puzzle-id="<%= puzzle._id %>">
 
 <%
   if (!page) return;
@@ -344,7 +362,7 @@
   <% } %>
 
 <% if (mod.type === 'historychat') { %>
-  <div class="module" data-maxturns="<%= mData.maxTurns || 3 %>">
+  <div class="module" data-maxturns="<%= mData.maxTurns || 3 %>" data-charname="<%= t(mData.characterName) %>" data-systemprompt="<%= t(mData.systemPrompt) %>">
     <div style="border-bottom: 1px solid rgba(0,0,0,0.3); padding-bottom: 10px; margin-bottom: 15px;">
         <strong style="display: block; font-size: 18px; color: #fbbf24;">Personage: <%= t(mData.characterName) %></strong>
     </div>
@@ -524,9 +542,9 @@ async function handleCorrectAnswer(btn, idx, questionId, maxPts, limit, pSec, pP
     
     setTimeout(() => {
       const form = document.getElementById(`form-${idx}`);
-      const goodPage = isTimed ? form.parentElement.querySelector(`[data-good]`)?.dataset.good : document.getElementById(`good-${idx}`)?.value;
-      const puzzleId = isTimed ? form.dataset.puzzle : "<%= puzzle._id %>";
-      if(goodPage && goodPage !== "") window.location.href = `/puzzle/${puzzleId}/${goodPage}`;
+      // MC-formulier draagt data-good; open-vraag gebruikt een verborgen input
+      const goodPage = form.dataset.good || document.getElementById(`good-${idx}`)?.value || "";
+      if(goodPage !== "") window.location.href = `/puzzle/<%= puzzle._id %>/${goodPage}`;
     }, 1500);
 
   } catch(e) {
@@ -544,18 +562,24 @@ function verifyMC(btn, idx, questionId, maxPts, limit, pSec, pPts, isTimed, qTex
     handleCorrectAnswer(btn, idx, questionId, maxPts, limit, pSec, pPts, isTimed, qText);
   } else {
     fb.innerHTML = "Helaas, niet juist."; fb.style.color = "#fca5a5";
+    goToBadPage(form.dataset.bad);
   }
+}
+
+function goToBadPage(badPage) {
+  if(badPage && badPage !== "") setTimeout(() => { window.location.href = `/puzzle/<%= puzzle._id %>/${badPage}`; }, 1500);
 }
 
 function verifyOpen(btn, idx, questionId, maxPts, limit, pSec, pPts, isTimed, qText) {
   const ans = document.getElementById(`open-ans-${idx}`).value.trim().toLowerCase();
   const correct = document.getElementById(`open-correct-${idx}`).value.trim().toLowerCase();
   const fb = document.getElementById(`fb-${idx}`);
-  
+
   if(ans === correct && ans !== "") {
     handleCorrectAnswer(btn, idx, questionId, maxPts, limit, pSec, pPts, isTimed, qText);
   } else {
     fb.innerHTML = "Helaas, niet juist."; fb.style.color = "#fca5a5";
+    goToBadPage(document.getElementById(`bad-${idx}`)?.value);
   }
 }
 
@@ -647,7 +671,7 @@ document.querySelectorAll('.ai-camera-btn').forEach(btn => {
 document.querySelectorAll('.ai-file-input').forEach(input => {
   input.addEventListener('change', async () => {
     const file = input.files[0]; if (!file) return;
-    const mod = input.closest('.card');
+    const mod = input.closest('.module');
     const btn = mod.querySelector('.ai-camera-btn');
     const statusDiv = mod.querySelector('.ai-status');
     const previewImg = mod.querySelector('.ai-preview');
@@ -674,7 +698,7 @@ document.querySelectorAll('.ai-file-input').forEach(input => {
         btn.style.display = "none"; 
       } else {
         statusDiv.style.color = "#fca5a5";
-        statusDiv.innerHTML = "❌ Afgekeurd.<br><span style="font-weight:normal;">" + result.reason + "</span>";
+        statusDiv.innerHTML = `❌ Afgekeurd.<br><span style="font-weight:normal;">${result.reason}</span>`;
         btn.disabled = false; btn.innerHTML = "Probeer opnieuw";
       }
     } catch (err) {
@@ -697,9 +721,10 @@ document.querySelectorAll('[id^="chat-btn-"]').forEach(btn => {
     win.scrollTop = win.scrollHeight;
 
     try {
-      const mod = btn.closest('.card');
-      const charName = mod.querySelector('strong').innerText; 
-      
+      const mod = btn.closest('.module');
+      const charName = mod.dataset.charname || "Onbekend";
+      const systemPrompt = mod.dataset.systemprompt || ("Je bent " + charName);
+
       // Toon typing indicator & scroll naar beneden
       const indicator = document.getElementById(`typing-indicator-${idx}`);
       win.appendChild(indicator); // Verplaats hem naar onderen
@@ -709,9 +734,9 @@ document.querySelectorAll('[id^="chat-btn-"]').forEach(btn => {
       const res = await fetch('/api/chat-persona', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ 
-          message: msg, 
-          characterName: charName, 
-          systemPrompt: "Je bent " + charName,
+          message: msg,
+          characterName: charName,
+          systemPrompt: systemPrompt,
           maxTurns: mod.dataset.maxturns,
           history: [] // Optioneel: Voeg history array hier later toe
         })
@@ -859,11 +884,12 @@ async function saveTeamName() {
     // Boot the engine met de triggers van de huidige pagina!
     // JSON.stringify zorgt dat de backend data direct een JS array wordt
     const sceneTriggers = <%- JSON.stringify(page.triggers || []) %>;
-    window.Artifact.boot(sceneTriggers);
+    if (window.Artifact && typeof window.Artifact.boot === "function") {
+      window.Artifact.boot(sceneTriggers);
+    } else {
+      console.warn("ArtifactEngine niet geladen; sensor-triggers overgeslagen.");
+    }
 </script>
-
-<body data-scene-id="<%= pageIndex %>" data-puzzle-id="<%= puzzle._id %>">
-
 
 </body>
 </html>

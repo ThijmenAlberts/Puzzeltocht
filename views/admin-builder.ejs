@@ -452,13 +452,53 @@ if (type === "historychat") {
     }
 
     if (type === "question") {
-      pDyn.innerHTML = `<div style="background:#fef3c7; padding:12px; border-radius:8px; border:1px solid #fde68a;"><label>Max Punten</label><input type="number" id="p-pts" value="${qs('[data-field="pts"]', block).value}"></div>`;
+      // Bouw een keuzelijst van alle pagina's voor de branching
+      const pageOptions = ['<option value="">— Geen (blijf op deze pagina) —</option>']
+        .concat(pages.map((p,i)=>{
+          const tt = typeof p.title==="string" ? p.title : (p.title?.[activeLanguage] || ("Pagina "+(i+1)));
+          return `<option value="${i}">${i+1}. ${tt}</option>`;
+        })).join("");
+
+      pDyn.innerHTML = `
+        <div style="background:#fef3c7; padding:12px; border-radius:8px; border:1px solid #fde68a;">
+          <label>Max Punten</label>
+          <input type="number" id="p-pts" value="${qs('[data-field="pts"]', block).value}">
+        </div>
+        <div style="margin-top:12px; padding:12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px;">
+          <label class="check-row" style="margin-top:0;"><input type="checkbox" id="p-timed"><span>⏱️ Vraag op tijd (strafpunten)</span></label>
+          <div id="p-timed-opts" style="display:none; margin-top:8px;">
+            <label>Tijdslimiet (seconden)</label><input type="number" id="p-tlimit" value="${qs('[data-field="tlimit"]', block).value}">
+            <label>Strafpunten per interval</label><input type="number" id="p-ppen" value="${qs('[data-field="ppen"]', block).value}">
+            <label>Interval (seconden)</label><input type="number" id="p-psec" value="${qs('[data-field="psec"]', block).value}">
+          </div>
+        </div>
+        <div style="margin-top:12px; padding:12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;">
+          <label style="margin-top:0;">➡️ Bij GOED antwoord naar</label>
+          <select id="p-goodpage">${pageOptions}</select>
+          <label>↩️ Bij FOUT antwoord naar</label>
+          <select id="p-badpage">${pageOptions}</select>
+        </div>
+      `;
       qs("#p-pts").oninput = () => qs('[data-field="pts"]', block).value = qs("#p-pts").value;
+
+      const sTimed = qs('[data-field="istimed"]', block);
+      qs("#p-timed").checked = sTimed.value === "true";
+      const updTimed = () => qs("#p-timed-opts").style.display = qs("#p-timed").checked ? "block" : "none";
+      updTimed();
+      qs("#p-timed").onchange = () => { sTimed.value = qs("#p-timed").checked ? "true" : "false"; updTimed(); };
+      qs("#p-tlimit").oninput = () => qs('[data-field="tlimit"]', block).value = qs("#p-tlimit").value;
+      qs("#p-ppen").oninput = () => qs('[data-field="ppen"]', block).value = qs("#p-ppen").value;
+      qs("#p-psec").oninput = () => qs('[data-field="psec"]', block).value = qs("#p-psec").value;
+
+      qs("#p-goodpage").value = qs('[data-field="goodPage"]', block).value || "";
+      qs("#p-goodpage").onchange = () => qs('[data-field="goodPage"]', block).value = qs("#p-goodpage").value;
+      qs("#p-badpage").value = qs('[data-field="badPage"]', block).value || "";
+      qs("#p-badpage").onchange = () => qs('[data-field="badPage"]', block).value = qs("#p-badpage").value;
     }
 
-    // Universele hints
+    // Hints alleen instelbaar op vraag-blokken (speler toont ze enkel daar)
     const sAiK = qs('[data-field="aiknowledge"]', block);
-    if(sAiK){
+    if(sAiK && type === "question"){
       pDyn.innerHTML += `
         <hr class="sep"><label style="color:var(--primary);">💡 Hint Systeem</label>
         <select id="p-hint-type"><option value="ai">🤖 AI-Gestuurd</option><option value="static">📝 Statische Tekst</option></select>
@@ -486,6 +526,7 @@ if (type === "historychat") {
     }
     (pg.modules||[]).forEach(m => {
       const b = createBlock(m.type); phone.appendChild(b);
+      b._orig = m.data || {}; // bewaar volledige (meertalige) data voor merge in collect()
       // Vul data in (versimpeld voor overzicht, exact zelfde parsing logic)
       if(m.type==="title") qs('[data-field="title"]',b).innerHTML = typeof m.data.title==="string"?m.data.title:m.data.title?.[activeLanguage]||"";
       if(m.type==="text") qs('[data-field="text"]',b).innerHTML = typeof m.data.text==="string"?m.data.text:m.data.text?.[activeLanguage]||"";
@@ -496,6 +537,14 @@ if (type === "historychat") {
          qs('[data-field="questionType"]',b).dispatchEvent(new Event('change'));
          if(m.data.questionType==="open") qs('[data-field="answer"]',b).value = typeof m.data.answer==="string"?m.data.answer:m.data.answer?.[activeLanguage]||"";
          else { qs('[data-options]',b).innerHTML=""; (m.data.options||[]).forEach(o=> b.createOption(typeof o.text==="string"?o.text:o.text?.[activeLanguage]||"", o.correct)); }
+         // Punten + timed-challenge + branching herstellen
+         if(qs('[data-field="pts"]',b)) qs('[data-field="pts"]',b).value = m.data.maxPoints ?? 10;
+         if(qs('[data-field="istimed"]',b)) qs('[data-field="istimed"]',b).value = (m.data.isTimed===true||m.data.isTimed==="true") ? "true" : "false";
+         if(qs('[data-field="tlimit"]',b)) qs('[data-field="tlimit"]',b).value = m.data.timeLimit ?? 60;
+         if(qs('[data-field="ppen"]',b)) qs('[data-field="ppen"]',b).value = m.data.penaltyPoints ?? 1;
+         if(qs('[data-field="psec"]',b)) qs('[data-field="psec"]',b).value = m.data.penaltySec ?? 10;
+         if(qs('[data-field="goodPage"]',b)) qs('[data-field="goodPage"]',b).value = m.data.goodPage ?? "";
+         if(qs('[data-field="badPage"]',b)) qs('[data-field="badPage"]',b).value = m.data.badPage ?? "";
       }
     if(m.type==="historychat"){
          qs('[data-field="chat-name"]',b).value = typeof m.data.characterName==="string"?m.data.characterName:m.data.characterName?.[activeLanguage]||"";
@@ -523,37 +572,46 @@ if (type === "historychat") {
   }
 
   function collect(){
+    // Merge de actieve taal in het bestaande vertaalobject i.p.v. andere talen te wissen.
+    const mergeLang = (existing, val) => ({ ...(existing && typeof existing === "object" ? existing : {}), [activeLanguage]: val });
     return qsa(".block:not([style*='dashed'])", phone).map(b => {
-      const type = b.dataset.type; let data = {};
-      if(type==="title"||type==="text") data[type] = {[activeLanguage]: qs(`[data-field="${type}"]`,b).innerHTML};
+      const type = b.dataset.type; const prev = b._orig || {}; let data = {};
+      if(type==="title"||type==="text") data[type] = mergeLang(prev[type], qs(`[data-field="${type}"]`,b).innerHTML);
       if(type==="image"||type==="audio"||type==="photo") data.url = qs('[data-field="url"]',b)?.value||"";
       if(type==="question"){
-        data.question = {[activeLanguage]: qs('[data-field="question"]',b).value};
+        data.question = mergeLang(prev.question, qs('[data-field="question"]',b).value);
         data.questionType = qs('[data-field="questionType"]',b).value;
-        if(data.questionType==="open") data.answer = {[activeLanguage]: qs('[data-field="answer"]',b).value};
-        else data.options = qsa('.mc-option',b).map(o=>({ text: {[activeLanguage]: o.querySelector('[data-text]').value}, correct: !!o.querySelector('[data-correct]').checked }));
+        if(data.questionType==="open") data.answer = mergeLang(prev.answer, qs('[data-field="answer"]',b).value);
+        else data.options = qsa('.mc-option',b).map((o,i)=>({ text: mergeLang(prev.options?.[i]?.text, o.querySelector('[data-text]').value), correct: !!o.querySelector('[data-correct]').checked }));
         data.maxPoints = Number(qs('[data-field="pts"]',b).value)||10;
+        // Timed-challenge + goed/fout-branching (namen die de speler-runtime leest)
+        data.isTimed = qs('[data-field="istimed"]',b)?.value === "true";
+        data.timeLimit = Number(qs('[data-field="tlimit"]',b)?.value)||60;
+        data.penaltyPoints = Number(qs('[data-field="ppen"]',b)?.value)||1;
+        data.penaltySec = Number(qs('[data-field="psec"]',b)?.value)||10;
+        data.goodPage = qs('[data-field="goodPage"]',b)?.value || "";
+        data.badPage = qs('[data-field="badPage"]',b)?.value || "";
       }
 
       if(type==="historychat"){
-        data.characterName = {[activeLanguage]: qs('[data-field="chat-name"]',b)?.value || ""};
-        data.systemPrompt = {[activeLanguage]: qs('[data-field="chat-prompt"]',b)?.value || ""};
-        
-        const lat = qs('[data-field="chat-lat"]', b)?.value; 
-        const lng = qs('[data-field="chat-lng"]', b)?.value; 
+        data.characterName = mergeLang(prev.characterName, qs('[data-field="chat-name"]',b)?.value || "");
+        data.systemPrompt = mergeLang(prev.systemPrompt, qs('[data-field="chat-prompt"]',b)?.value || "");
+
+        const lat = qs('[data-field="chat-lat"]', b)?.value;
+        const lng = qs('[data-field="chat-lng"]', b)?.value;
         const rad = qs('[data-field="chat-radius"]', b)?.value;
-        data.lat = lat !== "" ? Number(lat) : null; 
-        data.lng = lng !== "" ? Number(lng) : null; 
-        data.radius = rad !== "" ? Number(rad) : 50;
+        data.lat = (lat !== "" && lat != null) ? Number(lat) : null;
+        data.lng = (lng !== "" && lng != null) ? Number(lng) : null;
+        data.radius = (rad !== "" && rad != null) ? Number(rad) : 50;
         data.maxTurns = Number(qs('[data-field="chat-max-turns"]', b)?.value) || 3;
       }
-      
+
       if(type==="aiphoto"){
-        data.instruction = {[activeLanguage]: qs('[data-field="ai-instruction"]',b)?.value || ""};
-        data.prompt = {[activeLanguage]: qs('[data-field="ai-prompt"]',b)?.value || ""};
+        data.instruction = mergeLang(prev.instruction, qs('[data-field="ai-instruction"]',b)?.value || "");
+        data.prompt = mergeLang(prev.prompt, qs('[data-field="ai-prompt"]',b)?.value || "");
         data.points = Number(qs('[data-field="ai-points"]',b)?.value) || 10;
       }
-      
+
       data.aiKnowledge = qs('[data-field="aiknowledge"]',b)?.value||"";
       data.hintType = qs('[data-field="hinttype"]',b)?.value||"ai";
       data.staticHintText = qs('[data-field="statichint"]',b)?.value||"";

@@ -1,2 +1,6 @@
 .env
 node_modules
+
+# Per ongeluk meegecommitte Google Cloud SDK-installatie (hoort niet in de repo)
+gcloud components install alpha beta skaffold minikube kubectl gke-gcloud-auth-plugin/
+node_modules

@@ -19,7 +19,6 @@ import Puzzle from "./models/Puzzle.js";
 import Admin from "./models/Admin.js";
 import { checkCode } from "./models/Code.js";
 import Theme from "./models/Theme.js";
-import Team from "./models/Team.js"; 
 import GlobalTeam from "./models/GlobalTeam.js";
 import GameSession from "./models/GameSession.js";
 
@@ -730,6 +729,7 @@ app.post("/api/scene/trigger", express.json(), async (req, res) => {
 // GAME ENGINE: FASE 3 (HYBRIDE HINT ENGINE)
 // ==========================================
 app.post("/api/get-hint", express.json(), async (req, res) => {
+  if (!req.session.teamName) return res.status(401).json({ error: "Start eerst je team voordat je een hint vraagt." });
   const { questionText, hintType, staticHintText, secretKnowledge, userMessage, hintCost, questionId } = req.body;
   
   // --- HINT ESCALATIE LOGICA ---
@@ -767,8 +767,8 @@ app.post("/api/get-hint", express.json(), async (req, res) => {
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash-lite-preview", 
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash-lite",
       systemInstruction: `Je bent de Hint-Meester. Opdracht: "${questionText}". Geheim: "${secretKnowledge}". Geef een subtiele hint op de vraag "${userMessage}". Verklap NOOIT het antwoord.`
     });
 
@@ -790,6 +790,7 @@ app.post("/api/get-hint", express.json(), async (req, res) => {
 // GAME ENGINE: AI JURY & HISTORISCHE CHAT
 // ==========================================
 app.post("/api/verify-aiphoto", uploadTeamPhoto.single("file"), async (req, res) => {
+  if (!req.session.teamName) return res.status(401).json({ error: "Start eerst je team voordat je een foto laat beoordelen." });
   let limit = 10;
   let promptStr = "Controleer deze foto.";
   
@@ -826,6 +827,7 @@ app.post("/api/verify-aiphoto", uploadTeamPhoto.single("file"), async (req, res)
 });
 
 app.post("/api/chat-persona", express.json(), async (req, res) => {
+  if (!req.session.teamName) return res.status(401).json({ reply: "Start eerst je team om het gesprek te beginnen." });
   let characterNameStr = req.body.characterName || "Historisch Figuur";
   const maxTurnsAllowed = Number(req.body.maxTurns) || 3; // Dynamisch uit de builder!
   
@@ -1014,12 +1016,13 @@ app.get("/puzzle/:id/:page", async (req, res) => {
     
     // ✅ Nu geven we 'isCompleted' WEL mee aan de pagina!
     res.render("puzzle-page", {
+      layout: false, // puzzle-page is een self-contained immersive document
       puzzle,
       page: puzzle.pages[pageNum],
       pageIndex: pageNum,
       lang,
       session: req.session,
-      isCompleted: isCompleted 
+      isCompleted: isCompleted
     });
   } catch (err) {
     console.error("Render error:", err);
